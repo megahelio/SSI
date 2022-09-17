@@ -1,17 +1,11 @@
 package Practica1;
 
-import BCprovider.*;
-
-import java.security.*;
-import java.security.interfaces.*;
-import java.security.spec.*;
-import javax.crypto.*;
-import javax.crypto.interfaces.*;
-import javax.crypto.spec.*;
+import org.bouncycastle.jce.provider.BouncyCastleProvider;
+import java.security.Security;
 
 public class p1main {
     public static void main(String[] args) {
-        Security.addProvider(new BouncyCastleProvider())
+        Security.addProvider(new BouncyCastleProvider());
 
 
 
