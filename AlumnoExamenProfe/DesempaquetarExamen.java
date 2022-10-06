@@ -2,6 +2,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -11,8 +13,13 @@ import java.security.Security;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.util.Scanner;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+import javax.crypto.SecretKeyFactory;
+import javax.crypto.spec.DESKeySpec;
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 // linux -cp .:provider.jar
@@ -31,33 +38,44 @@ public class DesempaquetarExamen {
             System.out.println(
                     "java -cp [...] DesempaquetarExamen <fichero examen> <nombre paquete> <clave publica alumno> <clave privada profe>");
         } else {
-            File ficheroExamen = new File(args[0]);
-            int tamanhoFicheroExamen = (int) ficheroExamen.length();
-            byte[] examenCifrado = new byte[tamanhoFicheroExamen]; // Cosa a encriptar
-            try (FileInputStream in = new FileInputStream(ficheroExamen)) {
-                in.read(examenCifrado, 0, tamanhoFicheroExamen);
-                in.close();
 
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            // Boolean debug = false;
+            // System.out.println("Debug? Y/N");
+            // Scanner respuesta = new Scanner(System.in);
+            // if (respuesta.nextLine().toUpperCase().charAt(0) == 'Y')
+            // debug = true;
+
+            // respuesta.close();
 
             String nombrePaquete = args[1];
-
+            Paquete p = new Paquete(nombrePaquete);
             PublicKey clavePublicaAlumno = recuperaClavePublica(args[2]);
             PrivateKey clavePrivadaProfesor = recuperarClavePrivada(args[3]);
 
-            Cipher cifrador = Cipher.getInstance("RSA", "BC");
-            cifrador.init(Cipher.DECRYPT_MODE, clavePrivadaProfesor); // Cifra con la clave publica
+            // se crea el cipher que desencriptará la clave
+            Cipher descifradorRSA = Cipher.getInstance("RSA", "BC");
+            descifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaProfesor);
+            // desencriptamos la clave secreta
+            byte[] arrayClaveSecretaDES = descifradorRSA.doFinal(p.getContenidoBloque("claveSecreta"));
+            
 
-            System.out.println("Cifrar con clave publica");
-            System.out.println("TEXTO CLARO");
+            // Se pasa de tener una clave secreta array de bytes a un objeto SecretKey que
+            // podemos utilizar en Cipher
+            SecretKeyFactory generadorDES = SecretKeyFactory.getInstance("DES");
+            DESKeySpec DESspec = new DESKeySpec(arrayClaveSecretaDES);
+            SecretKey claveSecretaDES = generadorDES.generateSecret(DESspec);
+
+            // Iniciamos el cipher que desencriptará el exámen
+            Cipher descifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
+            descifradorDES.init(Cipher.DECRYPT_MODE, claveSecretaDES);
+
+            byte[] examenCifrado = p.getContenidoBloque("EXAMENCIFRADO");
+            
+            System.out.println("Descifrar exámen con clave privada\nTEXTO cifrado:");
             mostrarBytes(examenCifrado);
-            System.out.println("\n-------------------------------");
-            byte[] examenClaro = cifrador.doFinal(examenCifrado);
-            System.out.println("TEXTO CIFRADO");
+            byte[] examenClaro = descifradorDES.doFinal(examenCifrado);
+            System.out.println("TEXTO Claro:");
             mostrarBytes(examenClaro);
-            System.out.println("\n-------------------------------");
 
             FileOutputStream out = new FileOutputStream("ExamenClaro");
             out.write(examenClaro);
@@ -66,7 +84,9 @@ public class DesempaquetarExamen {
     }
 
     public static void mostrarBytes(byte[] buffer) {
+        System.out.println("\n-------------------------------");
         System.out.write(buffer, 0, buffer.length);
+        System.out.println("\n-------------------------------");
     }
 
     public static PublicKey recuperaClavePublica(String stringClavePublica)

@@ -5,6 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.KeyFactory;
+import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
@@ -17,7 +18,6 @@ import java.security.spec.X509EncodedKeySpec;
 import javax.crypto.Cipher;
 import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
-
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 // linux -cp .:provider.jar
@@ -38,35 +38,73 @@ public class EmpaquetarExamen {
                     "Uso: java-cp[...]EmpaquetarExamen <fichero examen> <nombre paquete> <clave publica profesor> <clave privada alumno> ");
 
         } else {
-            Security.addProvider(new BouncyCastleProvider());
+            // Boolean debug = false;
+            // System.out.println("Debug? Y/N");
+            // Scanner respuesta = new Scanner(System.in);
+            // if (respuesta.nextLine().toUpperCase().charAt(0) == 'Y')
+            // debug = true;
 
-            System.out.println("1. Generar clave DES");
+            // respuesta.close();
+
+            Security.addProvider(new BouncyCastleProvider());
+            String ficheroExamen = args[0];
+            String nombrePaquete = args[1];
+            String ficheroClavePublicaProfesor = args[2];
+            String ficheroClavePrivadaAlumno = args[3];
+            //// #region Cifrado examen
+            // generamos clave simétrica
             KeyGenerator generadorDES = KeyGenerator.getInstance("DES");
             generadorDES.init(56); // clave de 56 bits
-            SecretKey clave = generadorDES.generateKey();
+            SecretKey claveSimetricaDES = generadorDES.generateKey();
+
+            // Creamos cifrador DES para la clave que acabamos de crear
             Cipher cifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
-            System.out.println("2. Cifrar con DES el fichero " + args[0] +
-                    ", dejar el resultado en " + args[0] + ".cifrado");
+            cifradorDES.init(Cipher.ENCRYPT_MODE, claveSimetricaDES);
 
-            cifradorDES.init(Cipher.ENCRYPT_MODE, clave);
-
-            byte[] bufferExamen = Files.readAllBytes(Paths.get(args[0]));
-
+            // Pasamos el fichero examen a array de bytes
+            byte[] bufferExamen = Files.readAllBytes(Paths.get(ficheroExamen));
+            // Ciframos el examen en modo simétrico y se guardará al final en el paquete
             byte[] examenCifrado = cifradorDES.doFinal(bufferExamen);
+            // #endregion Cifrado examen
 
-            String nombrePaquete = args[1];
+            PublicKey clavePublicaProfesorRSA = recuperaClavePublica(ficheroClavePublicaProfesor);
+            PrivateKey clavePrivadaAlumnoRSA = recuperarClavePrivada(ficheroClavePrivadaAlumno);
 
-            PublicKey clavePublicaProfesor = recuperaClavePublica(args[2]);
-            PrivateKey clavePrivadaAlumno = recuperarClavePrivada(args[3]);
-            Cipher cifrador = Cipher.getInstance("RSA", "BC"); // Hace uso del provider BC
+            //// #region Cifrado clave
+            // Encriptamos la clave simétrica DES
+            Cipher cifrador = Cipher.getInstance("RSA", "BC");
+            cifrador.init(Cipher.ENCRYPT_MODE, clavePublicaProfesorRSA);
+            byte[] claveCifrada = cifrador.doFinal(claveSimetricaDES.getEncoded());
+            //// #endregion Cifrado clave
+
+            //#region firma
+            /* Crear funciÃ³n resumen */
+            MessageDigest messageDigest = MessageDigest.getInstance("MD5"); // Usa MD5
+            // MessageDigest messageDigest = MessageDigest.getInstance("SHA"); // Usar SHA-1
+
+            /* Leer fichero de 1k en 1k y pasar fragmentos leidos a la funcion resumen */
+            byte[] buffer = new byte[1000];
             
-            cifrador.init(Cipher.ENCRYPT_MODE, clavePublicaProfesor); // Cifra con la clave publica
+            FileInputStream in = new FileInputStream(args[0]);
+            int leidos = in.read(buffer, 0, 1000);
+            while (leidos != -1) {
+                messageDigest.update(buffer, 0, leidos); // Pasa texto de entrada a la funciÃ³n resumen
+                leidos = in.read(buffer, 0, 1000);
+            }
+            in.close();
 
-            byte[] claveCifrada = cifrador.doFinal(clave.getEncoded());
+            byte[] resumen = messageDigest.digest(); // Completar el resumen
+
+            // Mostrar resumen
+            System.out.println("RESUMEN:");
+            mostrarBytes(resumen);
+            System.out.println();
+            //#endregion firma
+
             Paquete p = new Paquete();
             p.anadirBloque("examenCifrado", examenCifrado);
-            p.anadirBloque("claveCifrada", claveCifrada);
-
+            p.anadirBloque("claveSecreta", claveCifrada);
+            // p.anadirBloque("firma", firma);
 
             p.escribirPaquete(nombrePaquete);
 
@@ -81,18 +119,9 @@ public class EmpaquetarExamen {
     public static PublicKey recuperaClavePublica(String stringClavePublica)
             throws Exception {
 
-       
         KeyFactory keyFactoryRSA = KeyFactory.getInstance("RSA", "BC");
 
-        File ficheroClavePublica = new File(stringClavePublica + ".publica");
-        int tamanoFicheroClavePublica = (int) ficheroClavePublica.length();
-        byte[] bufferPub = new byte[tamanoFicheroClavePublica];
-        try (FileInputStream in = new FileInputStream(ficheroClavePublica)) {
-            in.read(bufferPub, 0, tamanoFicheroClavePublica);
-            in.close();
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
+        byte[] bufferPub = Files.readAllBytes(Paths.get(stringClavePublica));
         X509EncodedKeySpec clavePublicaSpec = new X509EncodedKeySpec(bufferPub);
         PublicKey clavePublica = keyFactoryRSA.generatePublic(clavePublicaSpec);
 
@@ -103,7 +132,7 @@ public class EmpaquetarExamen {
     }
 
     public static PrivateKey recuperarClavePrivada(String stringClavePrivada) throws Exception {
-      
+
         KeyFactory keyFactoryRSA = KeyFactory.getInstance("RSA", "BC");
 
         File ficheroClavePrivada = new File(stringClavePrivada + ".privada");
