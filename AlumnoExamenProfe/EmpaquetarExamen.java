@@ -2,6 +2,8 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.security.KeyFactory;
 import java.security.NoSuchAlgorithmException;
 import java.security.NoSuchProviderException;
@@ -13,6 +15,9 @@ import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
 
 import javax.crypto.Cipher;
+import javax.crypto.KeyGenerator;
+import javax.crypto.SecretKey;
+
 
 import org.bouncycastle.jce.provider.BouncyCastleProvider;
 // linux -cp .:provider.jar
@@ -33,49 +38,37 @@ public class EmpaquetarExamen {
                     "Uso: java-cp[...]EmpaquetarExamen <fichero examen> <nombre paquete> <clave publica profesor> <clave privada alumno> ");
 
         } else {
+            Security.addProvider(new BouncyCastleProvider());
 
-            File ficheroExamen = new File(args[0]);
-            int tamanhoFicheroExamen = (int) ficheroExamen.length();
-            byte[] bufferExamen = new byte[tamanhoFicheroExamen]; // Cosa a encriptar
-            try (FileInputStream in = new FileInputStream(ficheroExamen)) {
-                in.read(bufferExamen, 0, tamanhoFicheroExamen);
-                in.close();
+            System.out.println("1. Generar clave DES");
+            KeyGenerator generadorDES = KeyGenerator.getInstance("DES");
+            generadorDES.init(56); // clave de 56 bits
+            SecretKey clave = generadorDES.generateKey();
+            Cipher cifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
+            System.out.println("2. Cifrar con DES el fichero " + args[0] +
+                    ", dejar el resultado en " + args[0] + ".cifrado");
 
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
+            cifradorDES.init(Cipher.ENCRYPT_MODE, clave);
+
+            byte[] bufferExamen = Files.readAllBytes(Paths.get(args[0]));
+
+            byte[] examenCifrado = cifradorDES.doFinal(bufferExamen);
 
             String nombrePaquete = args[1];
 
             PublicKey clavePublicaProfesor = recuperaClavePublica(args[2]);
             PrivateKey clavePrivadaAlumno = recuperarClavePrivada(args[3]);
-            // PASO 2: Crear cifrador RSA
             Cipher cifrador = Cipher.getInstance("RSA", "BC"); // Hace uso del provider BC
-            /************************************************************************
-             * IMPORTANTE: En BouncyCastle el algoritmo RSA no funciona realmente en modo
-             * ECB
-             * * No divide el mensaje de entrada en bloques
-             * * Solo cifra los primeros 512 bits (tam. clave)
-             * * Si fuera necesario cifrar mensajes mayores (no suele
-             * serlo al usar "cifrado hibrido"), habrÃ­a que hacer la
-             * divisiÃ³n en bloques "a mano"
-             ************************************************************************/
-
-            // PASO 3a: Poner cifrador en modo CIFRADO
+            
             cifrador.init(Cipher.ENCRYPT_MODE, clavePublicaProfesor); // Cifra con la clave publica
 
-            System.out.println("Cifrar con clave publica");
-            System.out.println("TEXTO CLARO");
-            mostrarBytes(bufferExamen);
-            System.out.println("\n-------------------------------");
-            byte[] examenCifrado = cifrador.doFinal(bufferExamen);
-            System.out.println("TEXTO CIFRADO");
-            mostrarBytes(examenCifrado);
-            System.out.println("\n-------------------------------");
+            byte[] claveCifrada = cifrador.doFinal(clave.getEncoded());
+            Paquete p = new Paquete();
+            p.anadirBloque("examenCifrado", examenCifrado);
+            p.anadirBloque("claveCifrada", claveCifrada);
 
-            FileOutputStream out = new FileOutputStream("ExamenCifrado");
-            out.write(examenCifrado);
-            out.close();
+
+            p.escribirPaquete(nombrePaquete);
 
         }
 
@@ -88,11 +81,9 @@ public class EmpaquetarExamen {
     public static PublicKey recuperaClavePublica(String stringClavePublica)
             throws Exception {
 
-        Security.addProvider(new BouncyCastleProvider());
+       
         KeyFactory keyFactoryRSA = KeyFactory.getInstance("RSA", "BC");
 
-        /*** 4 Recuperar clave PUBLICA del fichero */
-        // 4.1 Leer datos binarios x809
         File ficheroClavePublica = new File(stringClavePublica + ".publica");
         int tamanoFicheroClavePublica = (int) ficheroClavePublica.length();
         byte[] bufferPub = new byte[tamanoFicheroClavePublica];
@@ -100,10 +91,8 @@ public class EmpaquetarExamen {
             in.read(bufferPub, 0, tamanoFicheroClavePublica);
             in.close();
         } catch (IOException e) {
-            // TODO Auto-generated catch block
             e.printStackTrace();
         }
-        // 4.2 Recuperar clave publica desde datos codificados en formato X509
         X509EncodedKeySpec clavePublicaSpec = new X509EncodedKeySpec(bufferPub);
         PublicKey clavePublica = keyFactoryRSA.generatePublic(clavePublicaSpec);
 
@@ -114,11 +103,9 @@ public class EmpaquetarExamen {
     }
 
     public static PrivateKey recuperarClavePrivada(String stringClavePrivada) throws Exception {
-        Security.addProvider(new BouncyCastleProvider());
+      
         KeyFactory keyFactoryRSA = KeyFactory.getInstance("RSA", "BC");
 
-        /*** 2 Recuperar clave Privada del fichero */
-        // 2.1 Leer datos binarios PKCS8
         File ficheroClavePrivada = new File(stringClavePrivada + ".privada");
         int tamanoFicheroClavePrivada = (int) ficheroClavePrivada.length();
         byte[] bufferPriv = new byte[tamanoFicheroClavePrivada];
@@ -126,7 +113,6 @@ public class EmpaquetarExamen {
         in.read(bufferPriv, 0, tamanoFicheroClavePrivada);
         in.close();
 
-        // 2.2 Recuperar clave privada desde datos codificados en formato PKCS8
         PKCS8EncodedKeySpec clavePrivadaSpec = new PKCS8EncodedKeySpec(bufferPriv);
         PrivateKey clavePrivada = keyFactoryRSA.generatePrivate(clavePrivadaSpec);
 
