@@ -1,5 +1,6 @@
 javac -cp .:provider.jar DesempaquetarExamen.java
 javac -cp .:provider.jar EmpaquetarExamen.java
+javac -cp .:provider.jar SellarExamen.java
 
 java -cp .:provider.jar DesempaquetarExamen notiene paquetito.txt Claves/alumno Claves/profesor
 java -cp .:provider.jar EmpaquetarExamen examen.txt paquetito.txt Claves/profesor.publica Claves/alumno

@@ -10,6 +10,7 @@ import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
+import java.security.Signature;
 import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
@@ -39,47 +40,64 @@ public class DesempaquetarExamen {
                     "java -cp [...] DesempaquetarExamen <fichero examen> <nombre paquete> <clave publica alumno> <clave privada profe>");
         } else {
 
-            // Boolean debug = false;
-            // System.out.println("Debug? Y/N");
-            // Scanner respuesta = new Scanner(System.in);
-            // if (respuesta.nextLine().toUpperCase().charAt(0) == 'Y')
-            // debug = true;
+            Boolean debug = false;
+            System.out.println("Debug? Y/N");
+            Scanner respuesta = new Scanner(System.in);
+            if (respuesta.nextLine().toUpperCase().charAt(0) == 'Y')
+                debug = true;
 
-            // respuesta.close();
+            respuesta.close();
 
             String nombrePaquete = args[1];
             Paquete p = new Paquete(nombrePaquete);
             PublicKey clavePublicaAlumno = recuperaClavePublica(args[2]);
             PrivateKey clavePrivadaProfesor = recuperarClavePrivada(args[3]);
 
-            // se crea el cipher que desencriptará la clave
-            Cipher descifradorRSA = Cipher.getInstance("RSA", "BC");
-            descifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaProfesor);
-            // desencriptamos la clave secreta
-            byte[] arrayClaveSecretaDES = descifradorRSA.doFinal(p.getContenidoBloque("claveSecreta"));
-            
+            if (debug) {
+                System.out.println("ClavePrivadaProfesor: " + clavePrivadaProfesor.toString());
+                System.out.println("ClavePublicaAlumno: " + clavePublicaAlumno.toString());
+            }
 
-            // Se pasa de tener una clave secreta array de bytes a un objeto SecretKey que
-            // podemos utilizar en Cipher
-            SecretKeyFactory generadorDES = SecretKeyFactory.getInstance("DES");
-            DESKeySpec DESspec = new DESKeySpec(arrayClaveSecretaDES);
-            SecretKey claveSecretaDES = generadorDES.generateSecret(DESspec);
+            Signature firmador = Signature.getInstance("SHA1withRSA", "BC");
+            firmador.initVerify(clavePublicaAlumno);
+            firmador.update(p.getContenidoBloque("examenCifrado"));
+            firmador.update(p.getContenidoBloque("claveSecreta"));
 
-            // Iniciamos el cipher que desencriptará el exámen
-            Cipher descifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
-            descifradorDES.init(Cipher.DECRYPT_MODE, claveSecretaDES);
+            if (!firmador.verify(p.getContenidoBloque("firma"))) {
+                System.out.println("La firma del paquete no es correcta");
+            } else {
+                // se crea el cipher que desencriptará la clave
+                Cipher descifradorRSA = Cipher.getInstance("RSA", "BC");
+                descifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaProfesor);
+                // desencriptamos la clave secreta
+                byte[] arrayClaveSecretaDES = descifradorRSA.doFinal(p.getContenidoBloque("claveSecreta"));
 
-            byte[] examenCifrado = p.getContenidoBloque("EXAMENCIFRADO");
-            
-            System.out.println("Descifrar exámen con clave privada\nTEXTO cifrado:");
-            mostrarBytes(examenCifrado);
-            byte[] examenClaro = descifradorDES.doFinal(examenCifrado);
-            System.out.println("TEXTO Claro:");
-            mostrarBytes(examenClaro);
+                // Se pasa de tener una clave secreta array de bytes a un objeto SecretKey que
+                // podemos utilizar en Cipher
+                SecretKeyFactory generadorDES = SecretKeyFactory.getInstance("DES");
+                DESKeySpec DESspec = new DESKeySpec(arrayClaveSecretaDES);
+                SecretKey claveSecretaDES = generadorDES.generateSecret(DESspec);
 
-            FileOutputStream out = new FileOutputStream("ExamenClaro");
-            out.write(examenClaro);
-            out.close();
+                // Iniciamos el cipher que desencriptará el exámen
+                Cipher descifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
+                descifradorDES.init(Cipher.DECRYPT_MODE, claveSecretaDES);
+
+                byte[] examenCifrado = p.getContenidoBloque("EXAMENCIFRADO");
+                if (debug) {
+                    System.out.println("Descifrar exámen con clave privada\nTEXTO cifrado:");
+                    mostrarBytes(examenCifrado);
+                }
+                byte[] examenClaro = descifradorDES.doFinal(examenCifrado);
+                if (debug) {
+                    System.out.println("TEXTO Claro:");
+                    mostrarBytes(examenClaro);
+                }
+
+                FileOutputStream out = new FileOutputStream(args[0]);
+                out.write(examenClaro);
+                out.close();
+            }
+
         }
     }
 
@@ -97,7 +115,7 @@ public class DesempaquetarExamen {
 
         /*** 4 Recuperar clave PUBLICA del fichero */
         // 4.1 Leer datos binarios x809
-        File ficheroClavePublica = new File(stringClavePublica + ".publica");
+        File ficheroClavePublica = new File(stringClavePublica);
         int tamanoFicheroClavePublica = (int) ficheroClavePublica.length();
         byte[] bufferPub = new byte[tamanoFicheroClavePublica];
         try (FileInputStream in = new FileInputStream(ficheroClavePublica)) {
@@ -111,8 +129,6 @@ public class DesempaquetarExamen {
         X509EncodedKeySpec clavePublicaSpec = new X509EncodedKeySpec(bufferPub);
         PublicKey clavePublica = keyFactoryRSA.generatePublic(clavePublicaSpec);
 
-        System.out.println("ClavePublicaAlumno: " + clavePublica.toString());
-
         return clavePublica;
 
     }
@@ -123,7 +139,7 @@ public class DesempaquetarExamen {
 
         /*** 2 Recuperar clave Privada del fichero */
         // 2.1 Leer datos binarios PKCS8
-        File ficheroClavePrivada = new File(stringClavePrivada + ".privada");
+        File ficheroClavePrivada = new File(stringClavePrivada);
         int tamanoFicheroClavePrivada = (int) ficheroClavePrivada.length();
         byte[] bufferPriv = new byte[tamanoFicheroClavePrivada];
         FileInputStream in = new FileInputStream(ficheroClavePrivada);
@@ -133,8 +149,6 @@ public class DesempaquetarExamen {
         // 2.2 Recuperar clave privada desde datos codificados en formato PKCS8
         PKCS8EncodedKeySpec clavePrivadaSpec = new PKCS8EncodedKeySpec(bufferPriv);
         PrivateKey clavePrivada = keyFactoryRSA.generatePrivate(clavePrivadaSpec);
-
-        System.out.println("ClavePrivadaProfesor: " + clavePrivada.toString());
 
         return clavePrivada;
 
