@@ -42,12 +42,12 @@ public class Paquete {
         }
     }
 
-    public void anadirBloque(String nombre, byte[] contenido) {
+    public void anadirBloque(String nombre, byte[] marcaDeTiempo) {
         if (this.bloques == null) {
             this.bloques = new HashMap<>();
         }
         String nombreNormalizado = normalizarNombre(nombre);
-        this.bloques.put(nombreNormalizado, new Bloque(nombreNormalizado, contenido));
+        this.bloques.put(nombreNormalizado, new Bloque(nombreNormalizado, marcaDeTiempo));
     }
 
     public void actualizarBloque(String nombre, byte[] contenido) {

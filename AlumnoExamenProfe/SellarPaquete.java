@@ -2,42 +2,32 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.security.KeyFactory;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
 import java.security.PrivateKey;
 import java.security.PublicKey;
 import java.security.Security;
 import java.security.Signature;
-import java.security.spec.InvalidKeySpecException;
 import java.security.spec.PKCS8EncodedKeySpec;
 import java.security.spec.X509EncodedKeySpec;
+import java.time.LocalDateTime;
 import java.util.Scanner;
 
 import javax.crypto.Cipher;
-import javax.crypto.KeyGenerator;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
 import javax.crypto.spec.DESKeySpec;
 
-import org.bouncycastle.jce.provider.BouncyCastleProvider;
-// linux -cp .:provider.jar
+// Valida la firma del alumno (al igual que haremos en desempaquetar examen)
+// KR-privada KU-publica, Creo que la KU puede desencriptar cosas encriptadas con la clave privada
 
-// java-cp[...]EmpaquetarExamen <fichero examen> <nombre paquete> <clavePublicaProfesor> <ClavePrivada Alumno>
-
-// Usado por el ALUMNO Se le pasa en línea de comandos un fichero de texto con el contenido del examen
-//  a enviar,el nombre del paquete resultante y el path de los ficheros con las claves necesarias para 
-//  el empaquetado(el número y tipo exacto de los ficheros de claves dependerá de que estrategia se haya 
-//  decidido seguir).Genera el fichero<nombre paquete>(por ejemplo examen.paquete)con el resultado de”empaquetar”
-//  los datos que conforman el Examen Empaquetado.
-
-public class DesempaquetarExamen {
+public class SellarPaquete {
     public static void main(String[] args) throws Exception {
-        if (args.length != 5) {
+
+        LocalDateTime marcaDeTiempo = LocalDateTime.now();
+
+        if (args.length != 4) {
             System.out.println(
-                    "java -cp [...] DesempaquetarExamen <fichero examen> <nombre paquete> <clave publica alumno> <clave privada profe> <clave publica autoridad>");
+                    "java -cp [...] SellarPaquete <fichero examen> <nombre paquete> <clave publica alumno> <clave privada autoridad>");
         } else {
 
             Boolean debug = false;
@@ -51,11 +41,10 @@ public class DesempaquetarExamen {
             String nombrePaquete = args[1];
             Paquete p = new Paquete(nombrePaquete);
             PublicKey clavePublicaAlumno = recuperaClavePublica(args[2]);
-            PrivateKey clavePrivadaProfesor = recuperarClavePrivada(args[3]);
-            PublicKey clavePublicaAutoridad = recuperaClavePublica(args[4]);
+            PrivateKey clavePrivadaAutoridad = recuperarClavePrivada(args[3]);
 
             if (debug) {
-                System.out.println("ClavePrivadaProfesor: " + clavePrivadaProfesor.toString());
+                System.out.println("clavePrivadaAutoridad: " + clavePrivadaAutoridad.toString());
                 System.out.println("ClavePublicaAlumno: " + clavePublicaAlumno.toString());
             }
 
@@ -67,39 +56,18 @@ public class DesempaquetarExamen {
             if (!firmador.verify(p.getContenidoBloque("firma"))) {
                 System.out.println("La firma del paquete no es correcta");
             } else {
-                // se crea el cipher que desencriptará la clave
-                Cipher descifradorRSA = Cipher.getInstance("RSA", "BC");
-                descifradorRSA.init(Cipher.DECRYPT_MODE, clavePrivadaProfesor);
-                // desencriptamos la clave secreta
-                byte[] arrayClaveSecretaDES = descifradorRSA.doFinal(p.getContenidoBloque("claveSecreta"));
+                
+                firmador.initSign(clavePrivadaAutoridad);
+                firmador.update(marcaDeTiempo.toString().getBytes());
+                byte[] firma = firmador.sign();
 
-                // Se pasa de tener una clave secreta array de bytes a un objeto SecretKey que
-                // podemos utilizar en Cipher
-                SecretKeyFactory generadorDES = SecretKeyFactory.getInstance("DES");
-                DESKeySpec DESspec = new DESKeySpec(arrayClaveSecretaDES);
-                SecretKey claveSecretaDES = generadorDES.generateSecret(DESspec);
+                p.anadirBloque("firmaAutoridad", firma);
+                p.escribirPaquete(nombrePaquete);
 
-                // Iniciamos el cipher que desencriptará el exámen
-                Cipher descifradorDES = Cipher.getInstance("DES/ECB/PKCS5Padding");
-                descifradorDES.init(Cipher.DECRYPT_MODE, claveSecretaDES);
-
-                byte[] examenCifrado = p.getContenidoBloque("EXAMENCIFRADO");
-                if (debug) {
-                    System.out.println("Descifrar exámen con clave privada\nTEXTO cifrado:");
-                    mostrarBytes(examenCifrado);
-                }
-                byte[] examenClaro = descifradorDES.doFinal(examenCifrado);
-                if (debug) {
-                    System.out.println("TEXTO Claro:");
-                    mostrarBytes(examenClaro);
-                }
-
-                FileOutputStream out = new FileOutputStream(args[0]);
-                out.write(examenClaro);
-                out.close();
             }
 
         }
+
     }
 
     public static void mostrarBytes(byte[] buffer) {
