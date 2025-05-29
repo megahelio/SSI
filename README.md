@@ -1,6 +1,6 @@
 # 🔐 SSI
 
-Repositorio de la asignatura de Seguridad de Sistemas Informáticos (SSI) del Máster en Ingeniería Informática.
+Repositorio de la asignatura de Seguridad de Sistemas Informáticos (SSI) del Grado en Ingeniería Informática.
 ## 🧾 Descripción
 
 Este repositorio contiene un ejercicio para el uso de cifrado asimétrico con el fin de profundizar en las prácticas que permite: 
